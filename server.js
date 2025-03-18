@@ -1,46 +1,16 @@
 console.clear();
-require("dotenv").config();
+import dotenv from "dotenv";
+dotenv.config();
 
-const jwt = require("jsonwebtoken");
-const express = require("express");
-const bcrypt = require("bcrypt");
-const cookieParser = require("cookie-parser");
-const sanitizeHtml = require("sanitize-html");
-
-const db = require("better-sqlite3")("database.db");
-db.pragma("journal_mode = WAL");
+import jwt from "jsonwebtoken";
+import express from "express";
+import bcrypt from "bcrypt";
+import cookieParser from "cookie-parser";
+import sanitizeHtml from "sanitize-html";
+import { marked } from "marked";
+import { db } from "./lib/db.js";
 
 const PORT = process.env.PORT || 3000; // Getting port number from .env
-
-// Database Setup
-const createTables = db.transaction(() => {
-  // Create users table
-  // 1. write a sql statement db.prepare
-  // 2. to run it .run()
-  db.prepare(
-    `
-    CREATE TABLE IF NOT EXISTS users(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username STRING NOT NULL UNIQUE,
-      password STRING NOT NULL
-    )
-    `
-  ).run();
-
-  db.prepare(
-    `
-      CREATE TABLE IF NOT EXISTS papers(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        createdDate TEXT,
-        title STRING NOT NULL,
-        body STRING NOT NULL,
-        authorid INTEGER,
-        FOREIGN KEY (authorid) REFERENCES users (id)
-      )
-    `
-  ).run();
-});
-createTables();
 
 const app = express();
 app.set("view engine", "ejs"); // Setting ejs as our template engine
@@ -51,12 +21,27 @@ app.use(express.static("public")); // Using public as our static
 app.use(express.urlencoded({ extended: false })); // Parse form data
 
 app.use((req, res, next) => {
+  // Marked function for our template
+  res.locals.formatHTML = function (content) {
+    return marked.parse(content);
+  };
+
+  res.locals.recentPapers = function () {
+    const recentStatement = db.prepare(
+      `SELECT * FROM papers ORDER BY createdDate DESC`
+    );
+    const papers = recentStatement.all().slice(0, 4);
+    return papers;
+  };
+
   res.locals.errors = []; // Setting empty errors for all templates
+  res.locals.title = "Publish Research Papers";
 
   // Try to decode incoming cookie
   try {
     const decoded = jwt.verify(req.cookies.user, process.env.JWTSECRET);
-    req.user = decoded.userId;
+    const { userId, username } = decoded;
+    req.user = { userId, username };
   } catch (err) {
     req.user = false;
   }
@@ -71,8 +56,10 @@ app.use((req, res, next) => {
 // MARK: Routes
 app.get("/", (req, res) => {
   if (req.user) {
-    const statement = db.prepare(`SELECT * FROM papers WHERE authorid = ?`);
-    const papers = statement.all(req.user);
+    const statement = db.prepare(
+      `SELECT * FROM papers WHERE authorid = ? ORDER BY createdDate DESC`
+    );
+    const papers = statement.all(req.user.userId);
 
     return res.render("dashboard", { papers });
   }
@@ -143,7 +130,11 @@ app.post("/register", (req, res) => {
   const ourUser = lookUp.get(result.lastInsertRowid);
 
   const ourTokenValue = jwt.sign(
-    { userId: ourUser.id, exp: Date.now() / 1000 + 60 * 60 * 24 * 7 },
+    {
+      userId: ourUser.id,
+      username: username,
+      exp: Date.now() / 1000 + 60 * 60 * 24 * 7,
+    },
     process.env.JWTSECRET
   );
 
@@ -205,7 +196,11 @@ app.post("/login", (req, res) => {
 
   // Send back a cookie to the user
   const ourTokenValue = jwt.sign(
-    { userId: userInDB.id, exp: Date.now() / 1000 + 60 * 60 * 24 * 7 },
+    {
+      userId: userInDB.id,
+      username: username,
+      exp: Date.now() / 1000 + 60 * 60 * 24 * 7,
+    },
     process.env.JWTSECRET
   );
 
@@ -276,7 +271,7 @@ app.get("/paper/:id", (req, res) => {
     return res.redirect("/");
   }
 
-  const isAuthor = paper.authorid === req.user;
+  const isAuthor = paper.authorid === req.user.userId;
 
   return res.render("single-paper", { paper, isAuthor });
 });
@@ -291,7 +286,7 @@ app.get("/edit-paper/:id", mustBeLoggedIn, (req, res) => {
   }
 
   // check if the user has access to edit this paper
-  if (paper.authorid !== req.user) {
+  if (paper.authorid !== req.user.userId) {
     return res.redirect("/");
   }
 
@@ -309,7 +304,7 @@ app.post("/edit-paper/:id", mustBeLoggedIn, (req, res) => {
   }
 
   // check if the user has access to edit this paper
-  if (paper.authorid !== req.user) {
+  if (paper.authorid !== req.user.userId) {
     return res.redirect("/");
   }
 
@@ -337,7 +332,7 @@ app.post("/delete-paper/:id", mustBeLoggedIn, (req, res) => {
   }
 
   // check if the user has access to edit this paper
-  if (paper.authorid !== req.user) {
+  if (paper.authorid !== req.user.userId) {
     return res.redirect("/");
   }
 
@@ -363,7 +358,7 @@ app.post("/create-paper", mustBeLoggedIn, (req, res) => {
   const result = statement.run(
     req.body.title,
     req.body.body,
-    req.user,
+    req.user.userId,
     new Date().toISOString()
   );
 
