@@ -159,7 +159,7 @@ app.post("/register", (req, res) => {
   // Send back a cookie to the user
   res.cookie("user", ourTokenValue, {
     httpOnly: true, // Not for client side JS
-    secure: true, // Only for https
+    secure: false, // Only for https
     sameSite: "strict", // CSRF Attacks but allows for subdomain
     maxAge: 1000 * 60 * 60 * 24 * 7, // milliseconds, our cookie is good for a week
   });
