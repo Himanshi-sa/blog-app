@@ -1,6 +1,4 @@
 console.clear();
-import dotenv from "dotenv";
-dotenv.config();
 
 import jwt from "jsonwebtoken";
 import express from "express";
@@ -21,22 +19,6 @@ app.use(express.static("public")); // Using public as our static
 app.use(express.urlencoded({ extended: false })); // Parse form data
 
 app.use((req, res, next) => {
-  // Marked function for our template
-  res.locals.formatHTML = function (content) {
-    return marked.parse(content);
-  };
-
-  res.locals.recentPapers = function () {
-    const recentStatement = db.prepare(
-      `SELECT * FROM papers ORDER BY createdDate DESC`
-    );
-    const papers = recentStatement.all().slice(0, 4);
-    return papers;
-  };
-
-  res.locals.errors = []; // Setting empty errors for all templates
-  res.locals.title = "Publish Research Papers";
-
   // Try to decode incoming cookie
   try {
     const decoded = jwt.verify(req.cookies.user, process.env.JWTSECRET);
@@ -46,7 +28,43 @@ app.use((req, res, next) => {
     req.user = false;
   }
 
+  // Variables for ejs templates
   res.locals.user = req.user; // Access from templates!
+  res.locals.errors = []; // Setting empty errors for all templates
+  res.locals.title = "Publish Research Papers";
+
+  // Functions for ejs templates
+  res.locals.formatHTML = function (content) {
+    return marked.parse(content);
+  };
+
+  res.locals.truncateHTML = function (content) {
+    return sanitizeHtml(content, {
+      allowedTags: [],
+      allowedAttributes: {},
+    });
+  };
+
+  res.locals.recentPapers = function () {
+    const recentStatement = db.prepare(
+      `SELECT * FROM papers ORDER BY createdDate DESC LIMIT 4`
+    );
+
+    // Give recently published 4
+    const papers = recentStatement.all().slice(0, 4);
+    return papers;
+  };
+
+  res.locals.truncateTitle = function truncateTitle(title, maxLength = 30) {
+    return (
+      title.substring(0, maxLength) + (title.length > maxLength ? "..." : "")
+    );
+  };
+
+  res.locals.formatDate = function (dateTimeStamp) {
+    const date = new Intl.DateTimeFormat("en-US", dateTimeStamp);
+    return date.format();
+  };
 
   console.log(req.user);
 
@@ -84,8 +102,8 @@ app.post("/register", (req, res) => {
   if (username && username.length < 4) {
     errors.push("Username must contain atleast 4 characters");
   }
-  if (username && username.length > 12) {
-    errors.push("Username must not exceed 12 characters");
+  if (username && username.length > 15) {
+    errors.push("Username must not exceed 15 characters");
   }
   if (username && !username.match(/^[a-zA-Z0-9]+$/)) {
     errors.push("Username can't contain special characters");
@@ -237,15 +255,35 @@ function postValidation(req) {
   if (typeof req.body.title !== "string") req.body.title = "";
   if (typeof req.body.body !== "string") req.body.body = "";
 
-  // TODO: Do not allow or remove any html tags
+  // Strip or sanitize incoming HTML paper title, body
   req.body.title = sanitizeHtml(req.body.title, {
     allowedTags: [],
     allowedAttributes: {},
   });
+
   req.body.body = sanitizeHtml(req.body.body, {
-    allowedTags: ["a"],
+    allowedTags: [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "p",
+      "strong",
+      "em",
+      "b",
+      "i",
+      "ul",
+      "ol",
+      "li",
+      "hr",
+      "img",
+      "a",
+    ],
     allowedAttributes: {
       a: ["href"],
+      img: ["src", "alt"],
     },
   });
 
@@ -347,7 +385,6 @@ app.post("/create-paper", mustBeLoggedIn, (req, res) => {
   const errors = postValidation(req);
 
   if (errors.length) {
-    console.log("inside errors");
     return res.render("create-paper", { errors });
   }
 
@@ -363,7 +400,7 @@ app.post("/create-paper", mustBeLoggedIn, (req, res) => {
   );
 
   // Redirect user to newly created paper
-  const getPostStatement = db.prepare(`SELECT * FROM papers WHERE ROWID = ?`);
+  const getPostStatement = db.prepare(`SELECT id FROM papers WHERE ROWID = ?`);
   const realPost = getPostStatement.get(result.lastInsertRowid);
 
   return res.redirect(`/paper/${realPost.id}`);

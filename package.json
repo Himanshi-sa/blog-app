@@ -1,22 +1,12 @@
 {
   "name": "blog-app",
-  "type": "module",
   "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "clear": "rm -rf database.db database.db-shm database.db-wal"
-  },
-  "keywords": [],
   "author": "",
-  "license": "ISC",
-  "description": "",
+  "main": "server.js",
   "dependencies": {
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^11.8.1",
     "cookie-parser": "^1.4.7",
-    "dotenv": "^16.4.7",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
@@ -24,7 +14,13 @@
     "marked": "^15.0.7",
     "sanitize-html": "^2.14.0"
   },
-  "devDependencies": {
-    "nodemon": "^3.1.9"
-  }
+  "description": "",
+  "keywords": [],
+  "license": "ISC",
+  "scripts": {
+    "dev": "node --watch --env-file=.env server.js",
+    "start": "node --env-file=.env server.js",
+    "clear": "rm -rf *.db *.db-shm *.db-wal"
+  },
+  "type": "module"
 }
